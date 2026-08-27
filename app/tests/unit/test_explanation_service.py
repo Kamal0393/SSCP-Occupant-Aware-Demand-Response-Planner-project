@@ -47,3 +47,53 @@ def test_explains_no_action_decision():
 
     assert "B1" in explanation
     assert "no action" in explanation.lower()
+def test_explains_reasoning_tags():
+    service = ExplanationService()
+
+    explanation = service.explain(
+        make_decision(
+            reasoning_tags=("OVERLOAD_ACTIVE", "WITHIN_COMFORT_RANGE"),
+        )
+    )
+
+    assert "OVERLOAD_ACTIVE" in explanation
+    assert "WITHIN_COMFORT_RANGE" in explanation    
+def test_explains_objective_weights():
+    service = ExplanationService()
+
+    explanation = service.explain(
+        make_decision(
+            objective_weights_used={
+                "peak_reduction": 0.8,
+                "comfort": 0.2,
+            }
+        )
+    )
+
+    assert "peak_reduction=0.8" in explanation
+    assert "comfort=0.2" in explanation
+def test_explains_override_decision():
+    service = ExplanationService()
+
+    explanation = service.explain(
+        make_decision(
+            action=ActionType.OVERRIDE_APPLIED,
+            is_override=True,
+        )
+    )
+
+    assert "override" in explanation.lower()
+def test_explains_opt_out_respected():
+    service = ExplanationService()
+
+    explanation = service.explain(
+        make_decision(
+            action=ActionType.OPT_OUT_RESPECTED,
+            estimated_reduction_kw=0.0,
+            triggering_constraint="occupant_opt_out",
+            reasoning_tags=("OPTED_OUT",),
+        )
+    )
+
+    assert "opt-out was respected" in explanation.lower()
+    assert "OPTED_OUT" in explanation
