@@ -6,6 +6,8 @@ from app.application.services.comparison_service import (
 )
 from app.domain.strategies.strategy_interface import PlanningContext
 from app.domain.value_objects.decision import ActionType, Decision
+from app.domain.strategies.baseline_strategy import BaselineStrategy
+from app.domain.strategies.optimized_strategy import OptimizedStrategy
 
 
 def make_decision(decision_id: str) -> Decision:
@@ -112,4 +114,43 @@ def test_comparison_counts_overrides() -> None:
 
     assert result.first_override_count == 0
     assert result.second_override_count == 1
-    
+
+def test_comparison_service_compares_real_strategies() -> None:
+    context = PlanningContext(
+        dr_event=Mock(
+            target_reduction_kw=6.0,
+            id="DR1",
+        ),
+        transformer=Mock(),
+        buildings=(
+            Mock(
+                id=1,
+                flexible_load_kw=5.0,
+            ),
+            Mock(
+                id=2,
+                flexible_load_kw=5.0,
+            ),
+        ),
+        occupants=(),
+        comfort_ranges={},
+        tariff=None,
+    )
+
+    service = ComparisonService(
+        BaselineStrategy(),
+        OptimizedStrategy(),
+    )
+
+    result = service.compare(context)
+
+    assert result.first_strategy_name == "baseline"
+    assert result.second_strategy_name == "optimized"
+
+    assert result.first_total_reduction_kw == 6.0
+    assert result.second_total_reduction_kw == 6.0
+
+    assert result.reduction_difference_kw == 0.0
+
+    assert len(result.first_decisions) == 2
+    assert len(result.second_decisions) == 2
