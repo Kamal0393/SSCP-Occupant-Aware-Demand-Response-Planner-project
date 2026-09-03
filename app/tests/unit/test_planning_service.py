@@ -2,12 +2,14 @@ from datetime import datetime
 
 from app.application.services.planning_service import PlanningService
 from app.domain.entities.building import Building
-from app.domain.entities.dr_event import DemandResponseEvent
 from app.domain.entities.occupant import Occupant
 from app.domain.entities.transformer import Transformer
+from app.domain.entities.dr_event import DemandResponseEvent
+from app.application.services.explanation_service import ExplanationService
+from app.domain.strategies.optimized_strategy import OptimizedStrategy
+from app.infrastructure.solver.ortools_solver import ORToolsSolver
 from app.domain.strategies.strategy_interface import PlanningContext
 from app.domain.strategies.baseline_strategy import BaselineStrategy
-from app.application.services.explanation_service import ExplanationService
 
 
 def test_planning_service_generates_plan_with_optimized_strategy():
@@ -57,7 +59,7 @@ def test_planning_service_generates_plan_with_optimized_strategy():
         tariff=None,
     )
 
-    service = PlanningService()
+    service = PlanningService(OptimizedStrategy(ORToolsSolver()))
     decisions = service.generate_plan(context)
 
     assert len(decisions) == 1
@@ -181,7 +183,7 @@ def test_planning_decisions_can_be_explained():
         tariff=None,
     )
 
-    planning_service = PlanningService()
+    planning_service = PlanningService(OptimizedStrategy(ORToolsSolver()))
     explanation_service = ExplanationService()
 
     decisions = planning_service.generate_plan(context)

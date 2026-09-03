@@ -8,6 +8,9 @@ from app.domain.strategies.strategy_interface import PlanningContext
 from app.domain.value_objects.decision import ActionType, Decision
 from app.domain.strategies.baseline_strategy import BaselineStrategy
 from app.domain.strategies.optimized_strategy import OptimizedStrategy
+from app.infrastructure.solver.ortools_solver import ORToolsSolver
+
+
 
 
 def make_decision(decision_id: str) -> Decision:
@@ -138,8 +141,8 @@ def test_comparison_service_compares_real_strategies() -> None:
     )
 
     service = ComparisonService(
-        BaselineStrategy(),
-        OptimizedStrategy(),
+    BaselineStrategy(),
+    OptimizedStrategy(ORToolsSolver()),
     )
 
     result = service.compare(context)

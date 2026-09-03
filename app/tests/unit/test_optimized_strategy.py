@@ -7,6 +7,35 @@ from app.domain.entities.tariff import Tariff
 from app.domain.entities.transformer import Transformer
 from app.domain.strategies.optimized_strategy import OptimizedStrategy
 from app.domain.strategies.strategy_interface import PlanningContext
+from app.domain.strategies.solver_interface import DemandResponseSolver
+
+class FakeSolver(DemandResponseSolver):
+    def solve(
+        self,
+        flexible_loads: dict[str, float],
+        target_reduction_kw: float,
+        opted_out_building_ids: set[str],
+    ) -> dict[str, float]:
+        reductions = {}
+        remaining = min(
+            target_reduction_kw,
+            sum(
+                load
+                for building_id, load in flexible_loads.items()
+                if building_id not in opted_out_building_ids
+            ),
+        )
+
+        for building_id, flexible_load_kw in flexible_loads.items():
+            if building_id in opted_out_building_ids:
+                reductions[building_id] = 0.0
+                continue
+
+            reduction = min(flexible_load_kw, remaining)
+            reductions[building_id] = reduction
+            remaining -= reduction
+
+        return reductions
 
 
 def test_optimized_strategy_meets_target_reduction():
@@ -78,7 +107,7 @@ def test_optimized_strategy_meets_target_reduction():
         tariff=tariff,
     )
 
-    strategy = OptimizedStrategy()
+    strategy = OptimizedStrategy(FakeSolver())
     decisions = strategy.generate_plan(context)
 
     total_reduction = sum(
@@ -157,7 +186,7 @@ def test_optimized_strategy_does_not_exceed_available_flexible_load():
         tariff=tariff,
     )
 
-    strategy = OptimizedStrategy()
+    strategy = OptimizedStrategy(FakeSolver())
     decisions = strategy.generate_plan(context)
 
     total_reduction = sum(
@@ -238,7 +267,7 @@ def test_optimized_strategy_respects_opted_out_occupant():
         tariff=tariff,
     )
 
-    strategy = OptimizedStrategy()
+    strategy = OptimizedStrategy(FakeSolver())
     decisions = strategy.generate_plan(context)
 
     opted_out_decisions = [
@@ -253,7 +282,7 @@ def test_optimized_strategy_respects_opted_out_occupant():
     )
 
     assert any(
-        decision.building_id == 2
+        decision.building_id == "2"
         and decision.estimated_reduction_kw > 0
         for decision in decisions
     )
@@ -328,7 +357,7 @@ def test_optimized_strategy_does_not_exceed_available_non_opted_out_load():
         tariff=tariff,
     )
 
-    strategy = OptimizedStrategy()
+    strategy = OptimizedStrategy(FakeSolver())
     decisions = strategy.generate_plan(context)
 
     total_reduction = sum(
