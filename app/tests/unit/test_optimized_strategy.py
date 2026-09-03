@@ -286,6 +286,7 @@ def test_optimized_strategy_respects_opted_out_occupant():
         and decision.estimated_reduction_kw > 0
         for decision in decisions
     )
+    
 def test_optimized_strategy_does_not_exceed_available_non_opted_out_load():
     buildings = (
         Building(

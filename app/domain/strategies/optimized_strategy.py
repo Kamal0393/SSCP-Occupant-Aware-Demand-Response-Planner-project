@@ -23,7 +23,7 @@ class OptimizedStrategy(DemandResponseStrategy):
         }
 
         opted_out_building_ids = {
-            occupant.building_id
+            str(occupant.building_id)
             for occupant in context.occupants
             if occupant.opted_out
         }
