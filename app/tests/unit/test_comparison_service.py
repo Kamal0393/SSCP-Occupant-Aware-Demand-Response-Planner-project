@@ -157,3 +157,34 @@ def test_comparison_service_compares_real_strategies() -> None:
 
     assert len(result.first_decisions) == 2
     assert len(result.second_decisions) == 2
+
+def test_comparison_counts_changed_decisions() -> None:
+    first = Mock()
+    first.strategy_name = "baseline"
+
+    first_decision = make_decision("baseline-1")
+    first.generate_plan.return_value = [first_decision]
+
+    second = Mock()
+    second.strategy_name = "optimized"
+
+    second_decision = Decision(
+        id="optimized-1",
+        dr_event_id="event-1",
+        building_id="building-1",
+        slot_index=0,
+        action=ActionType.REDUCE_SETPOINT,
+        triggering_constraint="transformer_overload_hard_limit",
+        objective_weights_used={
+            "peak_reduction": 0.7,
+            "comfort": 0.3,
+        },
+        estimated_reduction_kw=2.0,
+    )
+    second.generate_plan.return_value = [second_decision]
+
+    service = ComparisonService(first, second)
+
+    result = service.compare(Mock(spec=PlanningContext))
+
+    assert result.changed_decision_count == 1
