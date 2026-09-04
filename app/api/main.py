@@ -76,5 +76,10 @@ async def health_check() -> dict:
 
 
 # Routers are registered here as they're implemented in later milestones:
-# from app.api.routers import planning, occupants, operators, overrides
-# app.include_router(planning.router, prefix="/api/planning", tags=["planning"])
+from app.api.routers import planning
+
+app.include_router(
+    planning.router,
+    prefix="/api/planning",
+    tags=["planning"],
+)
