@@ -20,7 +20,7 @@ rationale.
 - [x] `DemandResponseStrategy` abstract interface (baseline/optimized contract)
 - [x] FastAPI skeleton with structured logging and domain-aware error handling
 - [x] Docker Compose (backend + Postgres)
-- [x] Unit + integration tests (98 automated tests passing)
+- [x] Unit + integration tests (98 automated tests testcases)
 
 ## Repository layout
 
