@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .venv/
 venv/
 __pycache__/
@@ -8,3 +9,28 @@ __pycache__/
 .vscode/
 .idea/
 backend/.git-backup/
+=======
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+
+# Environment variables
+.env
+
+# Database
+*.db
+
+# Testing
+.pytest_cache/
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+>>>>>>> origin/develop
