@@ -45,3 +45,15 @@ def test_unhandled_error_handler_returns_500():
 
     # Internal details must not leak.
     assert "Internal implementation detail" not in response.text
+
+
+def test_frontend_origin_is_allowed_by_cors():
+    response = client.options(
+        "/api/transformers",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"

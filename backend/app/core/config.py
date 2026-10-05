@@ -33,7 +33,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # --- Database ---
-    DATABASE_URL: str = "postgresql://sscp_user:sscp_pass@localhost:5432/sscp_dr_planner"
+    # SQLite keeps academic/local setup zero-config; deployments can select
+    # PostgreSQL with DATABASE_URL in the environment.
+    DATABASE_URL: str = "sqlite:///./sscp_dr_planner.db"
+    DATABASE_ECHO: bool = False
+    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # Emergency override is disabled until an operator token is configured.
+    OVERRIDE_AUTH_TOKEN: str | None = None
 
     # --- Time modeling ---
     SLOT_DURATION_MINUTES: int = 15
@@ -47,6 +53,8 @@ class Settings(BaseSettings):
 
     # --- Default transformer safety margin ---
     DEFAULT_SAFETY_MARGIN_PCT: float = 0.10
+    # Planning proxy: estimated setpoint movement for each kW of HVAC curtailment.
+    HVAC_SETPOINT_CHANGE_C_PER_KW: float = 0.25
 
     def model_post_init(self, __context) -> None:
         expected_slots = (24 * 60) // self.SLOT_DURATION_MINUTES

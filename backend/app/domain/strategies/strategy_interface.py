@@ -34,12 +34,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from app.domain.entities.building import Building
+from app.domain.entities.appliance import Appliance
 from app.domain.entities.dr_event import DemandResponseEvent
 from app.domain.entities.occupant import Occupant
 from app.domain.entities.tariff import Tariff
 from app.domain.entities.transformer import Transformer
 from app.domain.value_objects.comfort_range import ComfortRange
 from app.domain.value_objects.decision import Decision
+from app.domain.value_objects.emergency_override import EmergencyOverride
+from app.domain.value_objects.load_profile import LoadProfile
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,10 @@ class PlanningContext:
     objective_weights: dict[str, float] = field(
         default_factory=lambda: {"peak_reduction": 0.5, "comfort": 0.5}
     )
+    appliances: tuple[Appliance, ...] = ()
+    emergency_override: EmergencyOverride | None = None
+    transformer_load_profile: LoadProfile | None = None
+    hvac_setpoint_change_c_per_kw: float = 0.25
 
 
 class DemandResponseStrategy(ABC):

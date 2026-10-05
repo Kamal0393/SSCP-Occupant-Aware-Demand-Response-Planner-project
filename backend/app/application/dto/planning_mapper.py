@@ -1,4 +1,6 @@
 from app.api.schemas.planning import PlanningRequestSchema
+from app.core.config import settings
+from app.domain.entities.appliance import Appliance
 from app.domain.entities.building import Building
 from app.domain.entities.dr_event import DemandResponseEvent
 from app.domain.entities.occupant import Occupant
@@ -6,9 +8,14 @@ from app.domain.entities.tariff import Tariff
 from app.domain.entities.transformer import Transformer
 from app.domain.strategies.strategy_interface import PlanningContext
 from app.domain.value_objects.comfort_range import ComfortRange
+from app.domain.value_objects.emergency_override import EmergencyOverride
+from app.domain.value_objects.load_profile import LoadProfile
 
 
-def to_domain_context(request: PlanningRequestSchema) -> PlanningContext:
+def to_domain_context(
+    request: PlanningRequestSchema,
+    emergency_override: EmergencyOverride | None = None,
+) -> PlanningContext:
     dr_event = DemandResponseEvent(
         id=request.dr_event.id,
         transformer_id=request.dr_event.transformer_id,
@@ -73,6 +80,19 @@ def to_domain_context(request: PlanningRequestSchema) -> PlanningContext:
             rate_per_slot=request.tariff.rate_per_slot,
         )
 
+    appliances = tuple(Appliance(
+        id=appliance.id,
+        building_id=appliance.building_id,
+        name=appliance.name,
+        appliance_type=appliance.appliance_type,
+        rated_power_kw=appliance.rated_power_kw,
+        is_flexible=appliance.is_flexible,
+        is_running=appliance.is_running,
+        preferred_slot=appliance.preferred_slot,
+        max_shift_slots=appliance.max_shift_slots,
+        duration_slots=appliance.duration_slots,
+    ) for appliance in request.appliances)
+
     return PlanningContext(
         dr_event=dr_event,
         transformer=transformer,
@@ -83,5 +103,13 @@ def to_domain_context(request: PlanningRequestSchema) -> PlanningContext:
         objective_weights={
             "peak_reduction": request.objective_weights.peak_reduction,
             "comfort": request.objective_weights.comfort,
+            "energy_cost": request.objective_weights.energy_cost,
         },
+        appliances=appliances,
+        emergency_override=emergency_override,
+        transformer_load_profile=(
+            LoadProfile(request.transformer.id, request.transformer_load_profile_kw)
+            if request.transformer_load_profile_kw is not None else None
+        ),
+        hvac_setpoint_change_c_per_kw=settings.HVAC_SETPOINT_CHANGE_C_PER_KW,
     )

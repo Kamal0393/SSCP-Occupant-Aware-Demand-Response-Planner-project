@@ -1,89 +1,83 @@
 # Architecture
 
-## Overview
+## Implemented system
 
-The SSCP Occupant-Aware Demand-Response Planner follows **Clean
-Architecture**: dependencies point inward, toward the domain. The domain
-layer has zero knowledge of FastAPI, PostgreSQL, or OR-Tools — it is pure
-Python that could run identically in a CLI, a notebook, or a web service.
+The repository currently contains a React + TypeScript operator dashboard, a FastAPI backend, SQLAlchemy persistence, and an OR-Tools CP-SAT solver adapter. Dependencies follow the Clean Architecture direction: Presentation -> Application -> Domain, with Infrastructure implementing persistence and solver adapters used at the outer boundary.
 
+```text
+React + TypeScript
+       | HTTP/JSON
+       v
+FastAPI routes and Pydantic schemas
+       | request mapping / dependency injection
+       v
+Application services
+  PlanningService | ComparisonService | PlanningAnalysisService
+  ExplanationService | PlanningPersistenceService
+       | domain contracts and entities
+       v
+Domain
+  entities | value objects | hard/soft constraints | strategies
+       ^                                       |
+       |                                       | Solver interface
+Infrastructure                                v
+  SQLAlchemy session/repositories       OR-Tools CP-SAT adapter
+  deterministic synthetic generator
+       |
+       v
+ SQLite (local/tests) or PostgreSQL (Docker deployment)
 ```
-Presentation (FastAPI, React)
-        ↓ depends on
-Application (use-case services)
-        ↓ depends on
-Domain (entities, value objects, constraints, strategies)
-        ↑ implemented by
-Infrastructure (DB repositories, solver adapter, data generator)
-```
 
-Infrastructure *implements* interfaces defined in the domain/application
-layers (dependency inversion) — for example, the domain defines
-`DemandResponseStrategy` as an abstract contract; `OptimizedStrategy` in
-infrastructure/solver fulfills it using OR-Tools underneath, but the
-application layer only ever talks to the abstract contract.
+## Presentation and API
 
-## Why this shape
+`frontend/operator-dashboard/src/App.tsx` loads transformer, building, occupant, appliance, tariff, DR event, comfort-range, load-profile, result, and history data through `src/api.ts`. The application pages show the dashboard, resource tables, planning request, optimization results, comparison, explanations, emergency form, and persisted history. API loading and error states are visible in the UI.
 
-The project has two requirements that push directly on the architecture:
+`backend/app/api/main.py` installs CORS from `CORS_ORIGINS`, logging, health checks, and handlers for domain, validation, integrity, database, and unexpected errors. Routers under `app/api/routers/` expose resource retrieval/CRUD and planning, comparison, result, decision, explanation, history, and emergency override endpoints. Pydantic schemas validate input and serialize responses. Routes use dependencies for SQLAlchemy sessions and planning authorization.
 
-1. **"Compare at least two competing objectives"** and **"baseline vs
-   intelligent planner"** — satisfied by making `BaselineStrategy` and
-   `OptimizedStrategy` both implement `DemandResponseStrategy`. The
-   `ComparisonService` runs both against the same `PlanningContext` and
-   diffs their `Decision` lists. Neither strategy needs to know the other
-   exists.
+## Application layer
 
-2. **"Explain every decision in simple language"** — satisfied by treating
-   explanation generation as a *downstream consumer* of a structured
-   `Decision` object, not something baked into the solver. The solver
-   never writes English; it writes `triggering_constraint`,
-   `reasoning_tags`, and `objective_weights_used`. A separate
-   `ExplanationService` (Milestone 5) turns that into the sentence shown
-   in the UI. This means:
-   - The explanation logic is unit-testable without a solver.
-   - We could later swap the template-based explainer for an LLM-based one
-     without touching the optimizer at all.
+- `PlanningService` invokes the selected strategy using a `PlanningContext`.
+- `ComparisonService` executes baseline and optimized strategies against the same context.
+- `PlanningAnalysisService` derives peak, energy, tariff-cost, comfort, modified-decision, and protection metrics from profiles and actual decisions.
+- `ExplanationService` maps decision actions and reasoning tags into deterministic operator-readable text.
+- `PlanningPersistenceService` stores a result, its decisions/explanations, and audit history.
+- `planning_mapper.py` maps validated API requests into domain objects; domain code does not depend on FastAPI or SQLAlchemy.
 
-## Core domain contracts
+## Domain and optimization
 
-| Type | Role |
-|---|---|
-| `Building`, `Occupant`, `Transformer`, `Tariff`, `DemandResponseEvent` | Entities — things with identity |
-| `ComfortRange`, `LoadProfile`, `Decision` | Value objects — immutable, defined by their data |
-| `DemandResponseStrategy` | Abstract contract implemented by baseline and optimized planners |
-| `PlanningContext` | Immutable bundle of everything a strategy needs — the only thing passed into `generate_plan()` |
+Domain entities include `Building`, `Occupant`, `Appliance`, `Transformer`, `Tariff`, and `DemandResponseEvent`. Value objects include `ComfortRange`, `LoadProfile`, `Decision`, and `EmergencyOverride`. `PlanningContext` holds the event, transformer, buildings, occupants, comfort ranges, tariff, objective weights, appliances, optional profile, and optional authorized override.
 
-## Hard vs. soft constraints
+`BaselineStrategy` provides the comparison reference. `OptimizedStrategy` prepares decisions under the strategy/solver abstraction and delegates the optimization problem to the solver interface. `ORToolsSolver` uses CP-SAT for discrete appliance scheduling and selected bounded decisions. Hard constraints include comfort bounds, non-negative reductions, opt-out protections absent an authorized consented override, appliance shift bounds, and override authorization/consent checks. Soft objective weights express the peak/comfort/cost trade-off when those inputs are available. Solver failure/infeasibility is surfaced as explicit decision/status information and API errors as appropriate.
 
-- **Hard constraints** (`domain/constraints/hard_constraints.py`) can never
-  be violated by any valid plan: occupant opt-out, comfort hard bounds,
-  non-negative load. Violating one raises `HardConstraintViolationError`
-  and the plan is invalid.
-- **Soft constraints** (`domain/constraints/soft_constraints.py`) return a
-  continuous penalty in `[0, 1]` that the optimizer weighs against other
-  objectives (e.g. deviating from a preferred temperature, shifting an
-  appliance away from its preferred time slot). This is what makes the
-  comfort/peak-reduction trade-off a real, tunable thing rather than a
-  fixed rule.
+The model uses 96 quarter-hour slots per day. The API converts event timestamps to slot windows. Tariff and load profiles are slot-indexed; energy and cost metrics are estimates derived from the supplied profiles and reductions.
 
-## Time modeling
+## Infrastructure and persistence
 
-Time is represented as **discrete 15-minute slots** (configurable via
-`SLOT_DURATION_MINUTES` in `core/config.py`). The domain layer works
-entirely in slot indices, not timestamps — the mapping to wall-clock time
-happens only at the API boundary. This keeps generated data,
-optimization runs, and experiments independent of any specific calendar
-date.
+`app/infrastructure/db/models.py` declares SQLAlchemy tables for transformers, buildings, occupants, comfort ranges, appliances, tariffs, DR events, load profiles, occupancy patterns, planning results, decisions, explanations, and history. `session.py` builds engines/sessions from `DATABASE_URL`, enables SQLite foreign keys, and provides schema initialization. Repository contracts and SQLAlchemy repository adapters are under `app/infrastructure/db/repositories/`; domain objects remain database agnostic.
 
-## Error handling philosophy
+SQLite is the default local/test database. Compose uses PostgreSQL 16. `python -m app.infrastructure.data_generation` creates the configured schema and seeds deterministic input data. It stores no fabricated plan, decision, metric, or explanation. Compose waits for PostgreSQL readiness, then seeds before starting FastAPI. The current initialization uses SQLAlchemy `create_all`; no Alembic migration set is present.
 
-Every expected failure mode (missing tariff data, occupancy sensor
-failure, insufficient reduction capacity, invalid sensor data,
-unauthorized override) has its own exception type in
-`core/exceptions.py`, inheriting from `SSCPBaseError`. The API layer maps
-`SSCPBaseError` subclasses to `422` with a structured `{error_type,
-detail}` body. This directly supports the Failure Mode Analysis
-deliverable (Milestone 10): each documented failure scenario has a
-corresponding, testable exception type from day one, not something
-retrofitted at the end.
+## Synthetic scenarios
+
+`generate_synthetic_dataset(seed=2026)` makes repeatable transformer, building, occupant, comfort, appliance, occupancy, tariff, event, and load-profile inputs. It includes normal demand, transformer overload, high-tariff, and emergency cases; flexible and fixed appliances; opted-out and override-consenting occupants; and varied occupancy/comfort parameters. Seed persistence uses repository-facing SQLAlchemy models and is idempotent for generated source records.
+
+## Error and authorization boundaries
+
+Input validation errors use FastAPI/Pydantic responses. Missing API resources return 404; unauthorized override returns 403; hard-constraint/infeasible conflicts may return 409; database unavailability returns a generic 503; unexpected failures return a generic 500 without stack traces. Detailed stack traces remain server-side logs.
+
+Emergency override requires a configured `OVERRIDE_AUTH_TOKEN` and matching `X-Override-Token`, a non-empty operator identity and justification, and `allow_override` consent. An occupant's `opted_out` flag remains separate. Authorized override decisions and their operator/justification are persisted in planning history.
+
+## Deployment and checks
+
+`docker-compose.yml` defines PostgreSQL, backend, and static Nginx frontend services with database/backend health checks. Backend CORS origins include local Vite and Compose frontend origins. The frontend API URL is a Vite build-time variable; the Compose build defaults to the host API at `http://localhost:8000` for browser access.
+
+Backend tests live in `backend/app/tests/` and cover domain behavior, solver behavior, planning/metrics/explanations, persistence/repositories/synthetic generation, and API workflows. Frontend component tests are in `frontend/operator-dashboard/src/App.test.tsx`. `npm run verify:live` exercises the live API and database without substituting mocked backend responses.
+
+## Current limitations
+
+- Synthetic data does not represent calibrated feeder/building telemetry.
+- Load response and occupant comfort are simplified planning approximations.
+- Planning uses a single daily 96-slot profile.
+- No database migrations or production-grade identity provider are configured.
+- The API planning request supplies the scenario context directly; a complete relational scenario assembly workflow is not implemented.
+- The frontend's generated JavaScript bundle currently exceeds Vite's 500 kB advisory threshold.

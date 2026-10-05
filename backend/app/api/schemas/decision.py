@@ -20,4 +20,4 @@ class DecisionSchema(BaseModel):
     estimated_reduction_kw: float = 0.0
     comfort_score: float | None = None
     delta: float | None = None
-    
+    explanation: str | None = None

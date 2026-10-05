@@ -1,15 +1,3 @@
-<<<<<<< HEAD
-.venv/
-venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-.env
-.env.*
-.vscode/
-.idea/
-backend/.git-backup/
-=======
 # Python
 __pycache__/
 *.pyc
@@ -21,6 +9,8 @@ venv/
 
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # Database
 *.db
@@ -30,7 +20,15 @@ venv/
 
 # IDE
 .vscode/
+.idea/
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Repository-local backup metadata
+backend/.git-backup/
 
 # OS
 .DS_Store
->>>>>>> origin/develop

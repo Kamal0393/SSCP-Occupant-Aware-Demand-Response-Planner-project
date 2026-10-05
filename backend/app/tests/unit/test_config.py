@@ -25,3 +25,11 @@ def test_default_objective_weights_are_valid():
     assert settings.DEFAULT_OBJECTIVE_WEIGHTS["peak_reduction"] == 0.5
     assert settings.DEFAULT_OBJECTIVE_WEIGHTS["comfort"] == 0.5
     assert sum(settings.DEFAULT_OBJECTIVE_WEIGHTS.values()) == 1.0
+
+
+def test_cors_origins_are_loaded_from_environment_as_json(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", '["https://operator.example"]')
+
+    configured = Settings(_env_file=None)
+
+    assert configured.CORS_ORIGINS == ["https://operator.example"]

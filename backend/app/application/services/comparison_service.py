@@ -1,10 +1,13 @@
 from dataclasses import dataclass
+from app.domain.entities.dr_event import DemandResponseEvent
+from app.domain.entities.transformer import Transformer
 
 from app.domain.strategies.strategy_interface import (
     DemandResponseStrategy,
     PlanningContext,
 )
 from app.domain.value_objects.decision import Decision
+from app.application.services.planning_analysis_service import PlanningAnalysisService, PlanningMetrics
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,7 @@ class StrategyComparison:
     first_decisions: tuple[Decision, ...]
     second_strategy_name: str
     second_decisions: tuple[Decision, ...]
+    metrics: PlanningMetrics | None = None
 
     @property
     def first_total_reduction_kw(self) -> float:
@@ -102,4 +106,7 @@ class ComparisonService:
             first_decisions=tuple(first_decisions),
             second_strategy_name=self._second_strategy.strategy_name,
             second_decisions=tuple(second_decisions),
+            metrics=(PlanningAnalysisService().analyze(context, second_decisions)
+                     if isinstance(getattr(context, "transformer", None), Transformer)
+                     and isinstance(getattr(context, "dr_event", None), DemandResponseEvent) else None),
         )
