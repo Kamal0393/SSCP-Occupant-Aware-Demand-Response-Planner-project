@@ -59,7 +59,7 @@ SQLite is the default local/test database. Compose uses PostgreSQL 16. `python -
 
 ## Synthetic scenarios
 
-`generate_synthetic_dataset(seed=2026)` makes repeatable transformer, building, occupant, comfort, appliance, occupancy, tariff, event, and load-profile inputs. It includes normal demand, transformer overload, high-tariff, and emergency cases; flexible and fixed appliances; opted-out and override-consenting occupants; and varied occupancy/comfort parameters. Seed persistence uses repository-facing SQLAlchemy models and is idempotent for generated source records.
+`generate_synthetic_dataset(seed=2026, ...)` makes repeatable transformer, building, occupant, comfort, appliance, occupancy, tariff, event, and load-profile inputs with configurable counts. The module CLI can export schema-versioned JSON with seed, parameters, and generated counts, or preserve its default database-seeding behavior. `backend/DATABASE_AND_SYNTHETIC_DATA.md` defines the export schema and regeneration command. The sample contains normal, overloaded, high-tariff, and emergency cases. Seed persistence uses repository-facing SQLAlchemy models and is idempotent for generated source records.
 
 ## Error and authorization boundaries
 

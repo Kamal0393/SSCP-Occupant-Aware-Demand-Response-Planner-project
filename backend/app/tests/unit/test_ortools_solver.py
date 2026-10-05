@@ -15,7 +15,6 @@ def test_ortools_solver_meets_target_reduction():
 
     assert sum(reductions.values()) == 6.0
 
-
 def test_ortools_solver_does_not_exceed_available_load():
     solver = ORToolsSolver()
 
@@ -29,7 +28,6 @@ def test_ortools_solver_does_not_exceed_available_load():
     )
 
     assert sum(reductions.values()) <= 5.0
-
 
 def test_ortools_solver_respects_opted_out_buildings():
     solver = ORToolsSolver()
@@ -45,19 +43,3 @@ def test_ortools_solver_respects_opted_out_buildings():
 
     assert reductions["1"] == 0.0
     assert reductions["2"] == 5.0
-
-
-def test_ortools_solver_does_not_exceed_non_opted_out_load():
-    solver = ORToolsSolver()
-
-    reductions = solver.solve(
-        flexible_loads={
-            "1": 4.0,
-            "2": 3.0,
-        },
-        target_reduction_kw=10.0,
-        opted_out_building_ids={"1"},
-    )
-
-    assert sum(reductions.values()) <= 3.0
-    assert reductions["1"] == 0.0

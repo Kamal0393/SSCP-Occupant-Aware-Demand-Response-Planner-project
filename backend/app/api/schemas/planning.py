@@ -1,4 +1,6 @@
-from pydantic import BaseModel, Field, model_validator
+from typing import Literal
+
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from app.api.schemas.appliance import ApplianceSchema
 from app.api.schemas.building import BuildingSchema
@@ -11,14 +13,24 @@ from app.api.schemas.transformer import TransformerSchema
 
 
 class ObjectiveWeightsSchema(BaseModel):
-    peak_reduction: float = Field(ge=0)
-    comfort: float = Field(ge=0)
-    energy_cost: float = Field(default=0.25, ge=0)
+    peak_reduction: float = Field(ge=0, allow_inf_nan=False)
+    comfort: float = Field(ge=0, allow_inf_nan=False)
+    energy_cost: float = Field(
+        default=0.25,
+        ge=0,
+        allow_inf_nan=False,
+        validation_alias=AliasChoices("energy_cost", "cost_weight"),
+    )
 
 
 class EmergencyOverrideSchema(BaseModel):
     operator_id: str = Field(min_length=1, max_length=100)
     justification: str = Field(min_length=12, max_length=1000)
+
+    @field_validator("operator_id", "justification", mode="before")
+    @classmethod
+    def strip_override_text(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
 
 
 class PlanningRequestSchema(BaseModel):
@@ -35,6 +47,7 @@ class PlanningRequestSchema(BaseModel):
     appliances: tuple[ApplianceSchema, ...] = ()
     emergency_override: EmergencyOverrideSchema | None = None
     transformer_load_profile_kw: tuple[float, ...] | None = None
+    occupancy_sensor_status: Literal["available", "failed"] = "available"
 
     @model_validator(mode="after")
     def validate_references(self) -> "PlanningRequestSchema":
@@ -56,7 +69,16 @@ class PlanningRequestSchema(BaseModel):
         return self
 
 
+class OverrideOutcomeSchema(BaseModel):
+    requested: bool = False
+    authorized: bool = False
+    applied: bool = False
+    affected_building_ids: list[str] = Field(default_factory=list)
+    explanation: str = "No emergency override was requested."
+
+
 class PlanningResponseSchema(BaseModel):
     decisions: list[DecisionSchema]
     metrics: dict[str, float | int | bool | None] | None = None
     planning_result_id: str | None = None
+    override: OverrideOutcomeSchema = Field(default_factory=OverrideOutcomeSchema)

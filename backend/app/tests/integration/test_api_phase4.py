@@ -29,7 +29,38 @@ def test_health_and_comparison_route():
     payload = response.json()
     assert payload["first_strategy"] == "baseline"
     assert payload["second_strategy"] == "optimized"
+    assert payload["first_decisions"] and payload["second_decisions"]
+    assert all("BASELINE_STRATEGY" in decision["reasoning_tags"]
+               for decision in payload["first_decisions"])
+    assert all("OPTIMIZED_STRATEGY" in decision["reasoning_tags"]
+               for decision in payload["second_decisions"])
+    assert payload["first_decisions"][0]["explanation"]
+    assert payload["second_decisions"][0]["explanation"]
     assert "baseline_peak_load_kw" in payload["metrics"]
+    assert payload["metrics"]["baseline_strategy"] is not None
+    assert payload["metrics"]["optimized_strategy"] is not None
+    assert payload["metrics"]["comparison"]["peak_reduction_kw"] is not None
+    assert "stakeholder_objective_value" in payload["metrics"]["optimized_strategy"]
+
+
+def test_comparison_endpoint_rejects_invalid_request():
+    response = client.post("/api/planning/compare", json={})
+    assert response.status_code == 422
+
+
+def test_comparison_endpoint_does_not_ignore_override_requests(monkeypatch):
+    from app.tests.integration.test_planning_api import _planning_request
+
+    monkeypatch.setattr(settings, "OVERRIDE_AUTH_TOKEN", "operator-secret")
+    payload = _planning_request()
+    payload["emergency_override"] = {
+        "operator_id": "operator-1",
+        "justification": "Prevent imminent transformer thermal damage",
+    }
+    response = client.post("/api/planning/compare", json=payload,
+                           headers={"X-Override-Token": "operator-secret"})
+    assert response.status_code == 422
+    assert response.json()["error_type"] == "UnauthorizedOverrideError"
 
 
 def test_planning_respects_opted_out_occupant():

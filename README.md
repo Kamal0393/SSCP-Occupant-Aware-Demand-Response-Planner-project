@@ -89,7 +89,7 @@ cd backend
 python -m app.infrastructure.data_generation
 ```
 
-This creates tables and seeds source inputs with a fixed random seed. It does not invent planning outcomes. PostgreSQL is initialized and seeded when the backend container starts after the database health check succeeds. Schema creation uses SQLAlchemy `create_all`; a versioned migration system is not currently included.
+This creates tables and seeds source inputs with seed `2026`; it does not invent planning outcomes. To export the reproducible sample JSON dataset and configure generation counts, see [backend/DATABASE_AND_SYNTHETIC_DATA.md](backend/DATABASE_AND_SYNTHETIC_DATA.md). PostgreSQL is initialized and seeded when the backend container starts after the database health check succeeds. Schema creation uses SQLAlchemy `create_all`; a versioned migration system is not currently included.
 
 ## Run the backend
 
@@ -132,7 +132,7 @@ Resource retrieval endpoints include `GET /api/buildings`, `/api/occupants`, `/a
 - `GET /api/planning/results`, `/api/planning/results/{id}`, and `/api/planning/results/{id}/decisions`.
 - `GET /api/planning/results/{id}/explanations` and `/api/planning/history` (optionally scoped by result ID).
 
-Use `/docs` for the request and response schemas. Planning requests carry the transformer, DR event, connected buildings and occupants, comfort ranges, tariff, appliances, objective weights, and optionally a transformer load profile.
+Use `/docs` for the request and response schemas. Planning requests carry the transformer, DR event, connected buildings and occupants, comfort ranges, tariff, appliances, objective weights, and optionally a transformer load profile. See [docs/api_workflows.md](docs/api_workflows.md) for comparison response metrics and the authorized emergency-override request/response examples.
 
 ## Planning and optimization workflow
 
@@ -143,6 +143,10 @@ Hard constraints preserve comfort hard bounds and non-negative load. Opted-out o
 ## Opt-out and emergency override
 
 An occupant opt-out is a protection, not a synonym for emergency authorization. Emergency override additionally requires an operator token in the `X-Override-Token` header, an operator ID, a meaningful justification, and occupant-level `allow_override` consent. Without a configured `OVERRIDE_AUTH_TOKEN`, the API denies the emergency request. Overrides and their actor/justification are recorded in planning history; comfort hard bounds still apply.
+
+## Reproducible planning experiment
+
+The executed [baseline vs optimized experiment notebook](notebooks/baseline_vs_optimized_experiment.ipynb) measures the generated overloaded-transformer case (seed 2026), including peak reduction against target, comfort, opt-out allocation, tariff cost, and current error behavior. It records actual outputs and limitations; see [notebooks/README.md](notebooks/README.md) for setup and interpretation.
 
 ## Testing and verification
 

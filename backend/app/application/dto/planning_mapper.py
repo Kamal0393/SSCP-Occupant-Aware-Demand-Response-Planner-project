@@ -112,4 +112,5 @@ def to_domain_context(
             if request.transformer_load_profile_kw is not None else None
         ),
         hvac_setpoint_change_c_per_kw=settings.HVAC_SETPOINT_CHANGE_C_PER_KW,
+        occupancy_sensor_status=request.occupancy_sensor_status,
     )

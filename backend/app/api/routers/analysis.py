@@ -13,6 +13,7 @@ from app.api.schemas.planning_records import (
 from app.application.dto.planning_mapper import to_domain_context
 from app.application.services.comparison_service import ComparisonService
 from app.application.services.explanation_service import ExplanationService
+from app.core.exceptions import UnauthorizedOverrideError
 from app.domain.strategies.baseline_strategy import BaselineStrategy
 from app.domain.strategies.optimized_strategy import OptimizedStrategy
 from app.infrastructure.db.models import DecisionModel, ExplanationModel
@@ -42,17 +43,26 @@ def _decision_payload(decision):
 
 @router.post("/compare", response_model=ComparisonResponseSchema)
 def compare_plans(request: PlanningRequestSchema) -> dict:
+    if request.emergency_override is not None:
+        raise UnauthorizedOverrideError(
+            "Emergency overrides cannot be applied during strategy comparison; use the authorized planning route"
+        )
     context = to_domain_context(request)
     result = ComparisonService(
         BaselineStrategy(), OptimizedStrategy(solver=ORToolsSolver())
     ).compare(context)
+    metrics = result.metrics.to_dict() if result.metrics else None
+    if metrics is not None:
+        metrics["baseline_strategy"] = result.first_metrics.to_dict() if result.first_metrics else None
+        metrics["optimized_strategy"] = result.metrics.to_dict()
+        metrics["comparison"] = result.comparison_metrics
     return {
         "first_strategy": result.first_strategy_name,
         "first_decisions": [_decision_payload(d) for d in result.first_decisions],
         "second_strategy": result.second_strategy_name,
         "second_decisions": [_decision_payload(d) for d in result.second_decisions],
         "changed_decision_count": result.changed_decision_count,
-        "metrics": result.metrics.to_dict() if result.metrics else None,
+        "metrics": metrics,
     }
 
 

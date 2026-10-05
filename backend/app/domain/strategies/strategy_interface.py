@@ -77,6 +77,7 @@ class PlanningContext:
     emergency_override: EmergencyOverride | None = None
     transformer_load_profile: LoadProfile | None = None
     hvac_setpoint_change_c_per_kw: float = 0.25
+    occupancy_sensor_status: str = "available"
 
 
 class DemandResponseStrategy(ABC):

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 from dataclasses import replace
 
 import pytest
@@ -15,7 +16,9 @@ from app.domain.entities.transformer import Transformer
 from app.domain.value_objects.comfort_range import ComfortRange
 from app.domain.value_objects.decision import ActionType, Decision
 from app.domain.value_objects.load_profile import LoadProfile
-from app.infrastructure.data_generation.synthetic import generate_synthetic_dataset, seed_database
+from app.infrastructure.data_generation.synthetic import (
+    dataset_to_dict, generate_synthetic_dataset, seed_database,
+)
 from app.infrastructure.db.models import (
     ApplianceModel, BuildingModel, ComfortRangeModel, DREventModel,
     ExplanationModel, LoadProfileModel, OccupancyPatternModel, OccupantModel,
@@ -96,6 +99,110 @@ def test_synthetic_generation_is_deterministic_and_covers_required_cases():
     assert all(len(profile.values_kw) == 96 for profile in first.load_profiles)
     assert len(first.events) >= 3
 
+
+def test_synthetic_generation_changes_across_seeds_and_respects_configured_counts():
+    first = generate_synthetic_dataset(
+        seed=101, building_count=6, transformer_count=3,
+        occupants_per_building=2, appliances_per_building=5,
+        intervals_per_profile=32,
+    )
+    repeat = generate_synthetic_dataset(
+        seed=101, building_count=6, transformer_count=3,
+        occupants_per_building=2, appliances_per_building=5,
+        intervals_per_profile=32,
+    )
+    other_seed = generate_synthetic_dataset(
+        seed=102, building_count=6, transformer_count=3,
+        occupants_per_building=2, appliances_per_building=5,
+        intervals_per_profile=32,
+    )
+
+    assert first == repeat
+    assert first != other_seed
+    assert len(first.transformers) == 3
+    assert len(first.buildings) == 6
+    assert len(first.occupants) == 12
+    assert len(first.appliances) == 30
+    assert len(first.events) == len(first.tariffs) == 3
+    assert first.config.seed == 101
+    assert first.config.intervals_per_profile == 32
+
+
+def test_synthetic_export_schema_relationships_ranges_and_time_series_consistency():
+    dataset = generate_synthetic_dataset(
+        seed=37, building_count=8, transformer_count=4,
+        occupants_per_building=2, appliances_per_building=4,
+        intervals_per_profile=48,
+    )
+    exported = dataset_to_dict(dataset)
+
+    assert exported["schema_version"] == "1.0"
+    assert exported["generation"]["seed"] == 37
+    assert exported["generation"]["parameters"]["interval_minutes"] == 15
+    assert exported["generation"]["counts"]["time_series_intervals"] == 12 * 48
+    assert len(exported["buildings"]) == 8
+    assert len(exported["occupants"]) == 16
+    assert len(exported["appliances"]) == 32
+
+    transformer_ids = {row["id"] for row in exported["transformers"]}
+    building_ids = {row["id"] for row in exported["buildings"]}
+    occupant_ids = {row["id"] for row in exported["occupants"]}
+    for building in exported["buildings"]:
+        assert building["transformer_id"] in transformer_ids
+        assert set(building["occupant_ids"]) <= occupant_ids
+        assert building["floor_area_sqm"] > 0
+        assert building["fixed_load_kw"] >= 0 and building["flexible_load_kw"] >= 0
+    for appliance in exported["appliances"]:
+        assert appliance["building_id"] in building_ids
+        assert appliance["rated_power_kw"] > 0
+        assert appliance["preferred_slot"] is None or 0 <= appliance["preferred_slot"] < 96
+    for comfort in exported["comfort_ranges"]:
+        assert comfort["min_value"] < comfort["max_value"]
+        assert comfort["min_value"] <= comfort["preferred_value"] <= comfort["max_value"]
+        assert comfort["unit"] == "degC"
+    for pattern in exported["occupancy_patterns"]:
+        assert len(pattern["occupied_by_interval"]) == 48
+        assert all(isinstance(value, bool) for value in pattern["occupied_by_interval"])
+    for profile in exported["load_profiles"]:
+        assert profile["interval_minutes"] == 15
+        assert len(profile["intervals"]) == 48
+        assert all(row["demand_kw"] >= 0 for row in profile["intervals"])
+        timestamps = [datetime.fromisoformat(row["timestamp"]) for row in profile["intervals"]]
+        assert all((right - left).total_seconds() == 15 * 60
+                   for left, right in zip(timestamps, timestamps[1:]))
+    profiles_by_entity = {profile["entity_id"]: profile["intervals"]
+                          for profile in exported["load_profiles"]}
+    for transformer in exported["transformers"]:
+        transformer_series = profiles_by_entity[transformer["id"]]
+        for interval_index, transformer_sample in enumerate(transformer_series):
+            building_total = sum(
+                profiles_by_entity[building_id][interval_index]["demand_kw"]
+                for building_id in transformer["connected_building_ids"]
+            )
+            assert transformer_sample["demand_kw"] == pytest.approx(building_total, abs=0.001)
+
+    for tariff in exported["tariffs"]:
+        assert tariff["rate_unit"] == "INR/kWh"
+        assert len(tariff["rate_per_slot"]) == 96
+        assert all(rate >= 0 for rate in tariff["rate_per_slot"].values())
+    for event in exported["demand_response_events"]:
+        assert event["transformer_id"] in transformer_ids
+        assert event["target_reduction_kw"] > 0
+        assert datetime.fromisoformat(event["end_time"]) > datetime.fromisoformat(event["start_time"])
+
+    encoded = json.dumps(exported, sort_keys=True)
+    assert encoded == json.dumps(dataset_to_dict(generate_synthetic_dataset(
+        seed=37, building_count=8, transformer_count=4,
+        occupants_per_building=2, appliances_per_building=4,
+        intervals_per_profile=48,
+    )), sort_keys=True)
+
+
+def test_synthetic_generation_rejects_inconsistent_generation_counts():
+    with pytest.raises(ValueError, match="building_count must be at least transformer_count"):
+        generate_synthetic_dataset(building_count=2, transformer_count=3)
+    with pytest.raises(ValueError, match="intervals_per_profile must be at least 1"):
+        generate_synthetic_dataset(intervals_per_profile=0)
 
 def test_overload_demo_combines_opt_out_high_tariff_and_shiftable_appliances():
     dataset = generate_synthetic_dataset()

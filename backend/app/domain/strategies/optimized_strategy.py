@@ -117,11 +117,15 @@ class OptimizedStrategy(DemandResponseStrategy):
             values = context.transformer_load_profile.values_kw
             event_peak = max(values[slot % len(values)] for slot in event_slots)
         capacity_reduction = max(0.0, event_peak - rated_capacity)
-        if (context.emergency_override is not None
-                and (event_peak <= rated_capacity or context.dr_event.status != DREventStatus.ACTIVE)):
-            raise UnauthorizedOverrideError(
-                "Emergency override requires an active event and an overloaded transformer"
-            )
+        if context.emergency_override is not None:
+            if event_peak <= rated_capacity or context.dr_event.status != DREventStatus.ACTIVE:
+                raise UnauthorizedOverrideError(
+                    "Emergency override requires an active event and an overloaded transformer"
+                )
+            if not override_ids:
+                raise UnauthorizedOverrideError(
+                    "Emergency override requires an opted-out building whose occupants have consented"
+                )
         schedulable = []
         for appliance in context.appliances:
             if (not appliance.is_flexible or appliance.is_running

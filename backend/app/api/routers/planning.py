@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas.decision import DecisionSchema
 from app.api.schemas.planning import (
+    OverrideOutcomeSchema,
     PlanningRequestSchema,
     PlanningResponseSchema,
 )
@@ -66,6 +67,22 @@ def generate_plan(
 
     decisions = _planning_service.generate_plan(context)
     metrics = _analysis_service.analyze(context, decisions)
+    override_decisions = [decision for decision in decisions if decision.is_override]
+    override_outcome = OverrideOutcomeSchema(
+        requested=request.emergency_override is not None,
+        authorized=authorized_override is not None,
+        applied=bool(override_decisions),
+        affected_building_ids=sorted({decision.building_id for decision in override_decisions}),
+        explanation=(
+            " ".join(_explanation_service.explain(decision) for decision in override_decisions)
+            if override_decisions else
+            "The override was authorized, but no override action was applied because the plan required none."
+            if authorized_override is not None and not metrics.infeasible else
+            "The override was authorized, but no feasible override action could be produced."
+            if authorized_override is not None else
+            "No emergency override was requested."
+        ),
+    )
     persistence = PlanningPersistenceService(
         transformers=TransformerRepository(session),
         events=DREventRepository(session),
@@ -108,4 +125,5 @@ def generate_plan(
         ],
         metrics=metrics.to_dict(),
         planning_result_id=planning_result_id,
+        override=override_outcome,
     )

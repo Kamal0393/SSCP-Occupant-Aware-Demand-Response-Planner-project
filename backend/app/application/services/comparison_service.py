@@ -19,6 +19,8 @@ class StrategyComparison:
     second_strategy_name: str
     second_decisions: tuple[Decision, ...]
     metrics: PlanningMetrics | None = None
+    first_metrics: PlanningMetrics | None = None
+    comparison_metrics: dict[str, float | int | None] | None = None
 
     @property
     def first_total_reduction_kw(self) -> float:
@@ -101,12 +103,49 @@ class ComparisonService:
         first_decisions = self._first_strategy.generate_plan(context)
         second_decisions = self._second_strategy.generate_plan(context)
 
+        analyzable = (
+            isinstance(getattr(context, "transformer", None), Transformer)
+            and isinstance(getattr(context, "dr_event", None), DemandResponseEvent)
+        )
+        baseline_metrics = PlanningAnalysisService().analyze(context, first_decisions) if analyzable else None
+        optimized_metrics = PlanningAnalysisService().analyze(context, second_decisions) if analyzable else None
+        comparison_metrics = None
+        if baseline_metrics is not None and optimized_metrics is not None:
+            peak_change = baseline_metrics.optimized_peak_load_kw - optimized_metrics.optimized_peak_load_kw
+            comparison_metrics = {
+                "baseline_peak_load_kw": baseline_metrics.optimized_peak_load_kw,
+                "optimized_peak_load_kw": optimized_metrics.optimized_peak_load_kw,
+                "peak_reduction_kw": peak_change,
+                "peak_reduction_pct": (
+                    peak_change / baseline_metrics.optimized_peak_load_kw * 100.0
+                    if baseline_metrics.optimized_peak_load_kw else 0.0
+                ),
+                "comfort_metric_change": (
+                    optimized_metrics.comfort_metric - baseline_metrics.comfort_metric
+                    if optimized_metrics.comfort_metric is not None
+                    and baseline_metrics.comfort_metric is not None else None
+                ),
+                "estimated_cost_difference_change": (
+                    optimized_metrics.estimated_cost_difference - baseline_metrics.estimated_cost_difference
+                    if optimized_metrics.estimated_cost_difference is not None
+                    and baseline_metrics.estimated_cost_difference is not None else None
+                ),
+                "opted_out_decision_count_change": (
+                    optimized_metrics.opted_out_decision_count - baseline_metrics.opted_out_decision_count
+                ),
+                "stakeholder_objective_value_change": (
+                    optimized_metrics.stakeholder_objective_value - baseline_metrics.stakeholder_objective_value
+                    if optimized_metrics.stakeholder_objective_value is not None
+                    and baseline_metrics.stakeholder_objective_value is not None else None
+                ),
+            }
+
         return StrategyComparison(
             first_strategy_name=self._first_strategy.strategy_name,
             first_decisions=tuple(first_decisions),
             second_strategy_name=self._second_strategy.strategy_name,
             second_decisions=tuple(second_decisions),
-            metrics=(PlanningAnalysisService().analyze(context, second_decisions)
-                     if isinstance(getattr(context, "transformer", None), Transformer)
-                     and isinstance(getattr(context, "dr_event", None), DemandResponseEvent) else None),
+            metrics=optimized_metrics,
+            first_metrics=baseline_metrics,
+            comparison_metrics=comparison_metrics,
         )

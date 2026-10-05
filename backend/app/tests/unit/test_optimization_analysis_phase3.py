@@ -1,7 +1,9 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 
 from app.application.services.explanation_service import ExplanationService
 from app.application.services.planning_analysis_service import PlanningAnalysisService
+from app.api.schemas.planning import ObjectiveWeightsSchema
 from app.domain.entities.appliance import Appliance, ApplianceType
 from app.domain.entities.building import Building, BuildingType
 from app.domain.entities.dr_event import DemandResponseEvent, DREventStatus
@@ -15,6 +17,8 @@ from app.domain.value_objects.decision import ActionType
 from app.domain.value_objects.emergency_override import EmergencyOverride
 from app.domain.value_objects.load_profile import LoadProfile
 from app.infrastructure.solver.ortools_solver import ORToolsSolver
+from pydantic import ValidationError
+import pytest
 
 
 def context(*, current=10, capacity=10, target=2, opted_out=False, allow_override=False,
@@ -130,3 +134,88 @@ def test_tariff_scheduler_moves_flexible_task_out_of_dr_window_and_metrics_are_m
     assert metrics.modified_decision_count == 1
     assert metrics.estimated_cost_difference is not None
     assert round(metrics.estimated_cost_difference, 3) == -4.875
+
+
+def test_objective_weight_defaults_and_cost_weight_alias():
+    defaults = ObjectiveWeightsSchema(peak_reduction=0.5, comfort=0.5)
+    custom = ObjectiveWeightsSchema(peak_reduction=0.3, comfort=0.4, cost_weight=0.8)
+    assert defaults.energy_cost == 0.25
+    assert custom.energy_cost == 0.8
+
+
+@pytest.mark.parametrize("field", ["comfort", "cost_weight"])
+def test_negative_stakeholder_objective_weights_are_rejected(field):
+    values = {"peak_reduction": 0.5, "comfort": 0.5, "cost_weight": 0.25}
+    values[field] = -0.1
+    with pytest.raises(ValidationError):
+        ObjectiveWeightsSchema(**values)
+
+
+def test_analysis_exposes_cost_comfort_metrics_and_combined_objective():
+    rates = {slot: 2.0 for slot in range(96)}
+    plan_context = replace(
+        context(current=14, capacity=10, target=4, flexible=4,
+                tariff=Tariff("T", "TOU", "INR", rates)),
+        objective_weights={"peak_reduction": 0.7, "comfort": 0.4, "energy_cost": 0.6},
+    )
+    decisions = OptimizedStrategy(ORToolsSolver()).generate_plan(plan_context)
+    metrics = PlanningAnalysisService().analyze(plan_context, decisions)
+    assert metrics.comfort_metric is not None
+    assert 0 <= metrics.comfort_metric <= 1
+    assert metrics.cost_metric is not None
+    assert metrics.comfort_weight == 0.4
+    assert metrics.cost_weight == 0.6
+    assert metrics.stakeholder_objective_value == pytest.approx(
+        0.4 * (1 - metrics.comfort_metric) + 0.6 * metrics.cost_metric
+    )
+
+
+def test_cost_weight_changes_appliance_schedule_tradeoff():
+    washer = Appliance("A1", "B", "Washer", ApplianceType.WASHING_MACHINE,
+                       1.5, True, False, preferred_slot=72, max_shift_slots=4)
+    rates = {slot: 100.0 for slot in range(96)}
+    rates[68] = 1.0
+    base = context(current=10, capacity=10, target=1.5, comfort=False,
+                   appliances=(washer,), tariff=Tariff("T", "TOU", "INR", rates),
+                   fixed=10, flexible=0)
+    comfort_first = replace(base, objective_weights={
+        "peak_reduction": 0.7, "comfort": 1.0, "energy_cost": 0.0,
+    })
+    cost_first = replace(base, objective_weights={
+        "peak_reduction": 0.7, "comfort": 1.0, "energy_cost": 10.0,
+    })
+    solver = ORToolsSolver()
+    comfort_shift = next(d for d in OptimizedStrategy(solver).generate_plan(comfort_first)
+                         if d.action == ActionType.DEFER_APPLIANCE)
+    cost_shift = next(d for d in OptimizedStrategy(solver).generate_plan(cost_first)
+                      if d.action == ActionType.DEFER_APPLIANCE)
+    assert comfort_shift.after_value == 71
+    assert cost_shift.after_value == 68
+
+    comfort_metrics = PlanningAnalysisService().analyze(
+        comfort_first, OptimizedStrategy(solver).generate_plan(comfort_first)
+    )
+    cost_metrics = PlanningAnalysisService().analyze(
+        cost_first, OptimizedStrategy(solver).generate_plan(cost_first)
+    )
+    assert cost_metrics.comfort_metric < comfort_metrics.comfort_metric
+    assert cost_metrics.cost_metric < comfort_metrics.cost_metric
+
+
+def test_extreme_stakeholder_weights_do_not_relax_hard_constraints():
+    bounded = replace(
+        context(current=12, capacity=10, target=2, flexible=4),
+        hvac_setpoint_change_c_per_kw=1.0,
+        objective_weights={"peak_reduction": 0.7, "comfort": 0.0, "energy_cost": 100.0},
+    )
+    bounded_decision = OptimizedStrategy(ORToolsSolver()).generate_plan(bounded)[0]
+    assert bounded_decision.estimated_reduction_kw <= 2.0
+    assert bounded_decision.comfort_score == 0.0
+
+    opted_out = replace(
+        context(current=12, capacity=10, target=2, opted_out=True),
+        objective_weights={"peak_reduction": 0.7, "comfort": 0.0, "energy_cost": 100.0},
+    )
+    opt_out_decision = OptimizedStrategy(ORToolsSolver()).generate_plan(opted_out)[0]
+    assert opt_out_decision.action == ActionType.OPT_OUT_RESPECTED
+    assert opt_out_decision.estimated_reduction_kw == 0.0
